@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+aiogram==3.7.0
+google-generativeai
+yt-dlp
+python-dotenv
+aiofiles
