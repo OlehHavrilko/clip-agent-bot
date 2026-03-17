@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, FSInputFile
-from aiogram.utils.exceptions import TelegramAPIError, RetryAfter
+from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from .config import TELEGRAM_BOT_TOKEN, MAX_CLIP_DURATION, DOWNLOADS_DIR
 from .agent import analyze_prompt
 from .searcher import search_and_download
@@ -124,7 +124,7 @@ async def process_scene_description(message: Message, state: FSMContext):
                 caption=caption,
                 supports_streaming=True
             )
-        except RetryAfter as e:
+        except TelegramRetryAfter as e:
             # Handle flood limit
             await asyncio.sleep(e.timeout)
             await bot.send_video(
