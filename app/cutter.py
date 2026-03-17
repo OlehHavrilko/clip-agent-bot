@@ -2,7 +2,7 @@ import asyncio
 import os
 import subprocess
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 from .config import DOWNLOADS_DIR, MAX_CLIP_DURATION
 from .utils import get_file_size_mb, validate_duration
 
