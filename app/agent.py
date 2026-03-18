@@ -3,6 +3,9 @@ import httpx
 from typing import Dict, Any
 from .config import GROQ_API_KEY
 
+# Verify GROQ_API_KEY is loaded
+print(f"GROQ_API_KEY loaded: {'YES' if GROQ_API_KEY else 'NO'}", flush=True)
+
 
 def analyze_prompt(user_prompt: str) -> Dict[str, Any]:
     """
@@ -12,15 +15,15 @@ def analyze_prompt(user_prompt: str) -> Dict[str, Any]:
     Raises ValueError if analysis fails.
     """
     system_prompt = """You are a film expert. User describes a movie scene in any language.
-Return ONLY a valid JSON object. No markdown, no explanation, no backticks.
-
+Return ONLY a valid JSON object. No markdown, no backticks, no explanation, no additional text.
+Start your response with { and end with }
 {
   "film": "film title in English",
   "year": "release year",
   "scene_description": "short description in English",
   "search_queries": [
     "best youtube search query",
-    "alternative query 1", 
+    "alternative query 1",
     "alternative query 2"
   ],
   "timestamp_start": "HH:MM:SS",
@@ -101,11 +104,19 @@ def parse_groq_response(response_text: str) -> Dict[str, Any]:
     import json
     import re
 
-    # Add logging to see raw response
-    print("GROQ RAW:", response_text[:500])
+    # Add detailed logging
+    print("GROQ RAW RESPONSE:", response_text[:1000], flush=True)
 
     try:
-        data = json.loads(response_text)
+        # Clean the raw response before parsing
+        text = response_text.strip()
+        text = re.sub(r'^```(?:json)?\n?', '', text)
+        text = re.sub(r'\n?```$', '', text)
+        text = text.strip()
+
+        print("CLEANED TEXT:", text[:500], flush=True)
+
+        data = json.loads(text)
         # Groq response format: {"choices": [{"message": {"content": "..."}}]}
         if "choices" in data and len(data["choices"]) > 0:
             content = data["choices"][0]["message"]["content"]
@@ -122,6 +133,6 @@ def parse_groq_response(response_text: str) -> Dict[str, Any]:
         else:
             raise ValueError(f"Unexpected response format: {data}")
     except (json.JSONDecodeError, KeyError) as e:
-        raise ValueError(f"Invalid JSON response from Groq: {str(e)}")
-    except (json.JSONDecodeError, KeyError) as e:
-        raise ValueError(f"Invalid JSON response from Groq: {str(e)}")
+        print(f"JSON PARSE ERROR: {e}", flush=True)
+        print(f"RAW WAS: {response_text}", flush=True)
+        raise ValueError(f"Failed to parse Groq response: {e}")
