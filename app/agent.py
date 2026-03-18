@@ -1,25 +1,11 @@
 import json
-import google.generativeai as genai
+from google import genai
 from typing import Dict, Any
 from .config import GEMINI_API_KEY
 
 
-# Configure Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
-
-# Create the model with specific configuration
-generation_config = {
-    "temperature": 0.3,
-    "top_p": 0.95,
-    "top_k": 64,
-    "max_output_tokens": 8192,
-    "response_mime_type": "text/plain",
-}
-
-model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    generation_config=generation_config,
-)
+# Create the client with API key
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def analyze_prompt(user_prompt: str) -> Dict[str, Any]:
@@ -56,8 +42,10 @@ Rules:
 
     try:
         # First attempt
-        chat_session = model.start_chat(history=[])
-        response = chat_session.send_message(f"{system_prompt}\n\nUser input: {user_prompt}")
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=f"{system_prompt}\n\nUser input: {user_prompt}"
+        )
         
         # Try to parse JSON response
         result = parse_gemini_response(response.text)
@@ -72,8 +60,10 @@ IMPORTANT: Return ONLY the JSON object. No explanations, no markdown, no backtic
 
 User input: {user_prompt}"""
             
-            chat_session = model.start_chat(history=[])
-            response = chat_session.send_message(strict_prompt)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=strict_prompt
+            )
             result = parse_gemini_response(response.text)
             return result
             
