@@ -94,51 +94,51 @@ async def process_scene_description(message: Message, state: FSMContext):
         # Generate job ID
         job_id = uuid4().hex[:8]
         
-        # Search and download video
+# Search and download video
         await message.answer("📥 Ищу и скачиваю видео...")
         result = await search_and_download(scene_data, job_id)
-        
-if isinstance(result, dict) and result.get("type") == "links":
-    # Handle links response with formatted HTML message
-    message_text = result.get("message", "Не смог скачать видео автоматически.")
-    film = result.get("film", "Неизвестный фильм")
-    year = result.get("year", "")
-    if year:
-        film_info = f"🎬 {film} ({year})"
-    else:
-        film_info = f"🎬 {film}"
 
-    urls = result.get("urls", [])
-    if urls:
-        message_text = f"{film_info}\n✂️ {message_text}\n\n"
-        youtube_links = []
-        search_links = []
-        for url in urls:
-            if "youtube.com" in url or "youtu.be" in url:
-                youtube_links.append(url)
+        if isinstance(result, dict) and result.get("type") == "links":
+            # Handle links response with formatted HTML message
+            message_text = result.get("message", "Не смог скачать видео автоматически.")
+            film = result.get("film", "Неизвестный фильм")
+            year = result.get("year", "")
+            if year:
+                film_info = f"🎬 {film} ({year})"
             else:
-                search_links.append(url)
+                film_info = f"🎬 {film}"
 
-        if youtube_links:
-            message_text += "🔍 <b>YouTube:</b>\n"
-            for i, url in enumerate(youtube_links, 1):
-                message_text += f"• <a href=\"{url}\">YouTube сцена {i}</a>\n"
+            urls = result.get("urls", [])
+            if urls:
+                message_text = f"{film_info}\n✂️ {message_text}\n\n"
+                youtube_links = []
+                search_links = []
+                for url in urls:
+                    if "youtube.com" in url or "youtu.be" in url:
+                        youtube_links.append(url)
+                    else:
+                        search_links.append(url)
 
-        if search_links:
-            message_text += "\n🎭 <b>Поиск по фразе:</b>\n"
-            for i, url in enumerate(search_links, 1):
-                if "playphrase" in url:
-                    message_text += f"• <a href=\"{url}\">PlayPhrase.me</a>\n"
-                elif "clip.cafe" in url:
-                    message_text += f"• <a href=\"{url}\">Clip.cafe</a>\n"
-                else:
-                    message_text += f"• <a href=\"{url}\">Поиск {i}</a>\n"
+                if youtube_links:
+                    message_text += "🔍 <b>YouTube:</b>\n"
+                    for i, url in enumerate(youtube_links, 1):
+                        message_text += f"• <a href=\"{url}\">YouTube сцена {i}</a>\n"
 
-    await message.answer(message_text, parse_mode="HTML")
-    cleanup(job_id)
-    await state.set_state(SceneStates.waiting_for_scene)
-    return
-        
+                if search_links:
+                    message_text += "\n🎭 <b>Поиск по фразе:</b>\n"
+                    for i, url in enumerate(search_links, 1):
+                        if "playphrase" in url:
+                            message_text += f"• <a href=\"{url}\">PlayPhrase.me</a>\n"
+                        elif "clip.cafe" in url:
+                            message_text += f"• <a href=\"{url}\">Clip.cafe</a>\n"
+                        else:
+                            message_text += f"• <a href=\"{url}\">Поиск {i}</a>\n"
+
+            await message.answer(message_text, parse_mode="HTML")
+            cleanup(job_id)
+            await state.set_state(SceneStates.waiting_for_scene)
+            return
+
         # Cut the clip
         await message.answer("✂️ Вырезаю клип...")
         clip_path = await cut_clip(result, start_time, end_time, job_id)
