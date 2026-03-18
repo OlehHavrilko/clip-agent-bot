@@ -99,12 +99,23 @@ def parse_groq_response(response_text: str) -> Dict[str, Any]:
     Handles various response formats that might include markdown or extra text.
     """
     import json
-    
+    import re
+
+    # Add logging to see raw response
+    print("GROQ RAW:", response_text[:500])
+
     try:
         data = json.loads(response_text)
         # Groq response format: {"choices": [{"message": {"content": "..."}}]}
         if "choices" in data and len(data["choices"]) > 0:
             content = data["choices"][0]["message"]["content"]
+
+            # Clean markdown code blocks
+            content = content.strip()
+            content = re.sub(r'^(?:json)?\s*', '', content)
+            content = re.sub(r'\s*$', '', content)
+            content = content.strip()
+
             return json.loads(content)
         elif "error" in data:
             raise ValueError(f"Groq API error: {data['error']}")
