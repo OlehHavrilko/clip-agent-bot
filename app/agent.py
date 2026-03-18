@@ -1,16 +1,12 @@
 import json
-from google import genai
+import httpx
 from typing import Dict, Any
-from .config import GEMINI_API_KEY
-
-
-# Create the client with API key
-client = genai.Client(api_key=GEMINI_API_KEY)
+from .config import GROQ_API_KEY
 
 
 def analyze_prompt(user_prompt: str) -> Dict[str, Any]:
     """
-    Analyze user prompt with Gemini to extract scene information.
+    Analyze user prompt with Groq to extract scene information.
     
     Returns a dictionary with film details, search queries, and timestamps.
     Raises ValueError if analysis fails.
@@ -42,13 +38,28 @@ Rules:
 
     try:
         # First attempt
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=f"{system_prompt}\n\nUser input: {user_prompt}"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        body = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 1000
+        }
+        
+        response = httpx.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            json=body,
+            headers=headers
         )
         
         # Try to parse JSON response
-        result = parse_gemini_response(response.text)
+        result = parse_groq_response(response.text)
         return result
         
     except Exception as e:
@@ -60,39 +71,46 @@ IMPORTANT: Return ONLY the JSON object. No explanations, no markdown, no backtic
 
 User input: {user_prompt}"""
             
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=strict_prompt
+            body = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": strict_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 1000
+            }
+            
+            response = httpx.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json=body,
+                headers=headers
             )
-            result = parse_gemini_response(response.text)
+            result = parse_groq_response(response.text)
             return result
             
         except Exception as e2:
             raise ValueError(f"Failed to analyze prompt: {str(e2)}")
 
 
-def parse_gemini_response(response_text: str) -> Dict[str, Any]:
+def parse_groq_response(response_text: str) -> Dict[str, Any]:
     """
-    Parse Gemini response to extract JSON object.
+    Parse Groq response to extract JSON object.
     Handles various response formats that might include markdown or extra text.
     """
-    import re
-    
-    # Try to find JSON object in the response
-    json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(0)
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError:
-            pass
-    
-    # If direct JSON parsing fails, try to clean the response
-    # Remove markdown code blocks if present
-    cleaned = re.sub(r'```json\s*', '', response_text)
-    cleaned = re.sub(r'\s*```', '', cleaned)
+    import json
     
     try:
-        return json.loads(cleaned.strip())
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON response from Gemini: {str(e)}")
+        data = json.loads(response_text)
+        # Groq response format: {"choices": [{"message": {"content": "..."}}]}
+        if "choices" in data and len(data["choices"]) > 0:
+            content = data["choices"][0]["message"]["content"]
+            return json.loads(content)
+        elif "error" in data:
+            raise ValueError(f"Groq API error: {data['error']}")
+        else:
+            raise ValueError(f"Unexpected response format: {data}")
+    except (json.JSONDecodeError, KeyError) as e:
+        raise ValueError(f"Invalid JSON response from Groq: {str(e)}")
+    except (json.JSONDecodeError, KeyError) as e:
+        raise ValueError(f"Invalid JSON response from Groq: {str(e)}")
