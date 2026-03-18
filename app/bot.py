@@ -96,11 +96,20 @@ async def process_scene_description(message: Message, state: FSMContext):
         
         # Search and download video
         await message.answer("📥 Ищу и скачиваю видео...")
-        raw_path = await search_and_download(scene_data, job_id)
+        result = await search_and_download(scene_data, job_id)
+        
+        if isinstance(result, dict) and result.get("type") == "links":
+            # Handle links response
+            await message.answer(result.get("message", "Не смог скачать видео автоматически."))
+            for url in result.get("urls", []):
+                await message.answer(url)
+            cleanup(job_id)
+            await state.set_state(SceneStates.waiting_for_scene)
+            return
         
         # Cut the clip
         await message.answer("✂️ Вырезаю клип...")
-        clip_path = await cut_clip(raw_path, start_time, end_time, job_id)
+        clip_path = await cut_clip(result, start_time, end_time, job_id)
         
         # Check file size
         file_size = get_file_size_mb(clip_path)

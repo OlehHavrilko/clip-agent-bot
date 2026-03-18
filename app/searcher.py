@@ -9,37 +9,84 @@ from typing import List, Tuple, Optional
 from .config import DOWNLOADS_DIR
 
 
-async def search_and_download(scene_data: dict, job_id: str) -> str:
+async def search_and_download(scene_data: dict, job_id: str):
     """
-    Search YouTube for the scene and download the video.
+    Search for the scene and download the video using multiple sources.
     
-    Tries each query in scene_data["search_queries"] until successful.
-    Returns path to downloaded file or raises RuntimeError if all fail.
+    Tries each query in scene_data["search_queries"] with various formats.
+    Returns path to downloaded file or dict with links if all fail.
     """
     search_queries = scene_data.get("search_queries", [])
     if not search_queries:
-        raise RuntimeError("No search queries provided")
+        return {
+            "type": "links",
+            "urls": [],
+            "message": "Не смог скачать видео автоматически. Вот ссылки для ручного поиска:"
+        }
     
+    # Try all queries with different formats
     for query in search_queries:
-        try:
-            # Search for videos
-            video_info = await search_youtube(query)
-            if not video_info:
+        # Try YouTube with different formats
+        youtube_formats = [
+            f"ytsearch5:{query}",
+            f"ytsearch5:{query} scene HD",
+            f"ytsearch5:{query} full scene",
+            f"ytsearch5:{query} movie clip"
+        ]
+        
+        for yt_format in youtube_formats:
+            try:
+                video_info = await search_youtube(yt_format)
+                if video_info:
+                    video_url = f"https://youtube.com/watch?v={video_info['id']}"
+                    download_path = await download_video(video_url, job_id)
+                    
+                    if download_path and os.path.exists(download_path):
+                        return download_path
+            except Exception:
                 continue
-                
-            # Download the first result
-            video_url = f"https://youtube.com/watch?v={video_info['id']}"
-            download_path = await download_video(video_url, job_id)
+        
+        # Try with film title and year
+        film_title = scene_data.get("film", "")
+        year = scene_data.get("year", "")
+        if film_title and year:
+            title_year_formats = [
+                f"ytsearch5:{film_title} {year} {query}",
+                f"ytsearch5:{film_title} {year} scene",
+                f"ytsearch5:{film_title} {year} movie clip"
+            ]
             
-            if download_path and os.path.exists(download_path):
-                return download_path
-                
-        except Exception as e:
-            # Log error and try next query
-            print(f"Failed to download with query '{query}': {str(e)}")
-            continue
+            for yt_format in title_year_formats:
+                try:
+                    video_info = await search_youtube(yt_format)
+                    if video_info:
+                        video_url = f"https://youtube.com/watch?v={video_info['id']}"
+                        download_path = await download_video(video_url, job_id)
+                        
+                        if download_path and os.path.exists(download_path):
+                            return download_path
+                except Exception:
+                    continue
     
-    raise RuntimeError("Video not found")
+    # If all downloads failed, return links
+    scene_description = scene_data.get("scene_description", "")
+    film_title = scene_data.get("film", "")
+    year = scene_data.get("year", "")
+    
+    urls = []
+    for query in search_queries:
+        urls.append(f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}")
+        urls.append(f"https://www.youtube.com/results?search_query={urllib.parse.quote(f'{query} scene HD')}")
+        urls.append(f"https://www.youtube.com/results?search_query={urllib.parse.quote(f'{film_title} {year} {query}')}")
+    
+    urls.append(f"https://www.playphrase.me/#/search?q={urllib.parse.quote(scene_description)}")
+    urls.append(f"https://clip.cafe/search/?q={urllib.parse.quote(scene_description)}")
+    
+    return {
+        "type": "links",
+        "urls": urls,
+        "message": "Не смог скачать видео автоматически. Вот ссылки для ручного поиска:"
+    }
 
 
 async def search_youtube(query: str) -> Optional[dict]:
@@ -51,13 +98,12 @@ async def search_youtube(query: str) -> Optional[dict]:
         'no_warnings': True,
         'extract_flat': True,
         'skip_download': True,
-        'playlist_items': '1',
+        'playlist_items': '5',  # Get 5 results to increase chances
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            search_query = f"ytsearch1:{query}"
-            info = ydl.extract_info(search_query, download=False)
+            info = ydl.extract_info(query, download=False)
             
             if 'entries' in info and info['entries']:
                 entry = info['entries'][0]
@@ -189,64 +235,3 @@ async def search_playphrase(query: str, job_id: str) -> str | None:
         print(f"playphrase.me search failed for query '{query}': {str(e)}")
         
     return None
-
-
-async def search_and_download(scene_data: dict, job_id: str) -> str:
-    """
-    Search for the scene and download the video using multiple sources.
-    
-    Tries clip.cafe first, then playphrase.me, then YouTube.
-    Returns path to downloaded file or raises RuntimeError if all fail.
-    """
-    search_queries = scene_data.get("search_queries", [])
-    if not search_queries:
-        raise RuntimeError("No search queries provided")
-    
-    for query in search_queries:
-        try:
-            # Try clip.cafe first
-            print(f"Trying clip.cafe for query: {query}")
-            result = await search_clipcafe(query, job_id)
-            if result:
-                print(f"Successfully downloaded from clip.cafe")
-                return result
-                
-            # Try playphrase.me second
-            print(f"Trying playphrase.me for query: {query}")
-            result = await search_playphrase(query, job_id)
-            if result:
-                print(f"Successfully downloaded from playphrase.me")
-                return result
-                
-            # Fallback to YouTube
-            print(f"Trying YouTube for query: {query}")
-            video_info = await search_youtube(query)
-            if video_info:
-                video_url = f"https://youtube.com/watch?v={video_info['id']}"
-                download_path = await download_video(video_url, job_id)
-                
-                if download_path and os.path.exists(download_path):
-                    print(f"Successfully downloaded from YouTube")
-                    return download_path
-                    
-        except Exception as e:
-            print(f"Failed to download with query '{query}': {str(e)}")
-            continue
-    
-    raise RuntimeError("Video not found from any source")
-    """
-    Get video duration in seconds using yt-dlp.
-    """
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_path, download=False)
-            return info.get('duration', 0)
-            
-    except Exception:
-        return 0.0
