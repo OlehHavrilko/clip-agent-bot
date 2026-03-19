@@ -16,6 +16,8 @@ async def search_and_download(scene_data: dict, job_id: str):
     Tries each query in scene_data["search_queries"] with various formats.
     Returns path to downloaded file or dict with links if all fail.
     """
+    from .subtitles import find_timestamp
+
     search_queries = scene_data.get("search_queries", [])
     if not search_queries:
         return {
@@ -23,7 +25,8 @@ async def search_and_download(scene_data: dict, job_id: str):
             "urls": [],
             "message": "Не смог скачать видео автоматически. Вот ссылки для ручного поиска:"
         }
-    
+
+    video_id = None
     # Try all queries with different formats
     for query in search_queries:
         # Try YouTube with different formats
@@ -33,14 +36,68 @@ async def search_and_download(scene_data: dict, job_id: str):
             f"ytsearch5:{query} full scene",
             f"ytsearch5:{query} movie clip"
         ]
-        
+
         for yt_format in youtube_formats:
+            try:
+                video_info = await search_youtube(yt_format)
+                if video_info:
+                    video_id = video_info['id']
+                    break
+            except Exception:
+                continue
+        if video_id:
+            break
+
+    if video_id:
+        # Download subtitles
+        subtitle_path = os.path.join(DOWNLOADS_DIR, f"{job_id}_subs.en.srt")
+        try:
+            ydl_opts = {
+                'write_subs': True,
+                'write_auto_subs': True,
+                'sub_lang': 'en',
+                'skip_download': True,
+                'outtmpl': os.path.join(DOWNLOADS_DIR, f"{job_id}_subs.%(ext)s"),
+                'quiet': True,
+                'no_warnings': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([f"https://youtube.com/watch?v={video_id}"])
+
+            if os.path.exists(subtitle_path):
+                keywords = [word for word in scene_data["scene_description"].split() if len(word) > 4]
+                timestamps = find_timestamp(subtitle_path, keywords)
+                if timestamps:
+                    scene_data["start_time"], scene_data["end_time"] = timestamps
+                    print(f"Found exact timestamp in subtitles: {timestamps[0]} -> {timestamps[1]}")
+
+        except Exception as e:
+            print(f"Subtitle download or parsing failed: {e}")
+
+        video_url = f"https://youtube.com/watch?v={video_id}"
+        download_path = await download_video(video_url, job_id)
+
+        if download_path and os.path.exists(download_path):
+            return download_path
+
+
+    # Try with film title and year
+    film_title = scene_data.get("film", "")
+    year = scene_data.get("year", "")
+    if film_title and year:
+        title_year_formats = [
+            f"ytsearch5:{film_title} {year} {query}",
+            f"ytsearch5:{film_title} {year} scene",
+            f"ytsearch5:{film_title} {year} movie clip"
+        ]
+
+        for yt_format in title_year_formats:
             try:
                 video_info = await search_youtube(yt_format)
                 if video_info:
                     video_url = f"https://youtube.com/watch?v={video_info['id']}"
                     download_path = await download_video(video_url, job_id)
-                    
+
                     if download_path and os.path.exists(download_path):
                         return download_path
             except Exception:
