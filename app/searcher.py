@@ -183,32 +183,43 @@ async def download_video(video_url: str, job_id: str) -> Optional[str]:
     output_template = os.path.join(DOWNLOADS_DIR, f"{job_id}_raw.%(ext)s")
     
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'best[height<=720]/best[height<=480]/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
         'no_playlist': True,
         'no_warnings': True,
         'max_filesize': 500 * 1024 * 1024,  # 500MB limit
         'quiet': True,
+        'add_headers': [
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language: en-US,en;q=0.9'
+        ],
+        'extractor-retries': 3,
+        'fragment-retries': 3,
+        'retry-sleep': 3,
+        'no-check-certificates': True,
+        'geo-bypass': True,
+        'age-limit': 18
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=True)
-            
-            # Get the actual output path
-            if 'filepath' in info:
-                return info['filepath']
-            else:
-                # Fallback: find the downloaded file
-                for file in os.listdir(DOWNLOADS_DIR):
-                    if file.startswith(f"{job_id}_raw."):
-                        return os.path.join(DOWNLOADS_DIR, file)
-                        
-    except Exception as e:
-        print(f"Download failed for {video_url}: {str(e)}")
-        
-    return None
+            try:
+                info = ydl.extract_info(video_url, download=True)
+                
+                # Get the actual output path
+                if 'filepath' in info:
+                    return info['filepath']
+                else:
+                    # Fallback: find the downloaded file
+                    for file in os.listdir(DOWNLOADS_DIR):
+                        if file.startswith(f"{job_id}_raw."):
+                            return os.path.join(DOWNLOADS_DIR, file)
+            except Exception as e:
+                print(f"YT-DLP ERROR: {str(e)}", flush=True)
+                return None
+    except Exception:
+        return None
 
 
 class ClipCafeParser(HTMLParser):
