@@ -1,10 +1,11 @@
 import json
 import httpx
 from typing import Dict, Any
-from .config import GROQ_API_KEY
+from .config import GROQ_API_KEY, OPENROUTER_API_KEY
 
-# Verify GROQ_API_KEY is loaded
+# Verify API keys are loaded
 print(f"GROQ_API_KEY loaded: {'YES' if GROQ_API_KEY else 'NO'}", flush=True)
+print(f"OPENROUTER_API_KEY loaded: {'YES' if OPENROUTER_API_KEY else 'NO'}", flush=True)
 
 
 def analyze_prompt(user_prompt: str) -> Dict[str, Any]:
@@ -42,11 +43,12 @@ Rules:
     try:
         # First attempt
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://clip-agent-bot.onrender.com"
         }
         body = {
-            "model": "llama-3.3-70b-versatile",
+            "model": "minimax/minimax-m2.5:free",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -56,7 +58,7 @@ Rules:
         }
         
         response = httpx.post(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             json=body,
             headers=headers
         )
@@ -75,7 +77,7 @@ IMPORTANT: Return ONLY the JSON object. No explanations, no markdown, no backtic
 User input: {user_prompt}"""
             
             body = {
-                "model": "llama-3.3-70b-versatile",
+                "model": "minimax/minimax-m2.5:free",
                 "messages": [
                     {"role": "system", "content": strict_prompt},
                     {"role": "user", "content": user_prompt}
@@ -85,7 +87,7 @@ User input: {user_prompt}"""
             }
             
             response = httpx.post(
-                "https://api.groq.com/openai/v1/chat/completions",
+                "https://openrouter.ai/api/v1/chat/completions",
                 json=body,
                 headers=headers
             )
@@ -172,11 +174,12 @@ Rules:
 
     try:
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://clip-agent-bot.onrender.com"
         }
         body = {
-            "model": "llama-3.3-70b-versatile",
+            "model": "minimax/minimax-m2.5:free",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -186,7 +189,7 @@ Rules:
         }
 
         response = httpx.post(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             json=body,
             headers=headers
         )
@@ -200,10 +203,10 @@ Rules:
             raise ValueError("No choices in Groq API response")
 
     except httpx.HTTPStatusError as e:
-        print(f"Groq API HTTP error for caption generation: {e.response.status_code} - {e.response.text}", flush=True)
+        print(f"OpenRouter API HTTP error for caption generation: {e.response.status_code} - {e.response.text}", flush=True)
         return ""
     except httpx.RequestError as e:
-        print(f"Groq API request error for caption generation: {e}", flush=True)
+        print(f"OpenRouter API request error for caption generation: {e}", flush=True)
         return ""
     except Exception as e:
         print(f"Failed to generate TikTok caption: {e}", flush=True)

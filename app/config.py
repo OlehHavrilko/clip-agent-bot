@@ -14,6 +14,11 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY environment variable is required")
 
+# OpenRouter API Configuration
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_API_KEY environment variable is required")
+
 # Application Configuration
 MAX_CLIP_DURATION = int(os.getenv("MAX_CLIP_DURATION", "300"))  # 5 minutes default
 DOWNLOADS_DIR = os.getenv("DOWNLOADS_DIR", "downloads")
