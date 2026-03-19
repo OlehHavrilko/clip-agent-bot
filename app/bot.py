@@ -97,10 +97,13 @@ async def process_scene_description(message: Message, state: FSMContext):
             f"Что будем делать дальше?"
         )
 
-        # Create inline keyboard
+        # Create inline keyboard for clip options
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="⬇️ Скачать клип", callback_data="download_clip"),
+                InlineKeyboardButton(text="⬇️ Горизонтальный", callback_data="download_horizontal"),
+                InlineKeyboardButton(text="📱 Вертикальный 9:16", callback_data="download_vertical"),
+            ],
+            [
                 InlineKeyboardButton(text="🔗 Только ссылки", callback_data="send_links"),
             ]
         ])
@@ -109,24 +112,83 @@ async def process_scene_description(message: Message, state: FSMContext):
         await state.set_state(SceneStates.awaiting_action)
 
     except ValueError as e:
-        # Agent failed
         await message.answer("❌ Не смог определить сцену. Попробуй описать точнее.")
         await state.set_state(SceneStates.waiting_for_scene)
-
     except TelegramAPIError as e:
         logger.error(f"Telegram API error: {e}")
         await message.answer("❌ Ошибка при отправке сообщения. Попробуй ещё раз.")
         await state.set_state(SceneStates.waiting_for_scene)
-
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         await message.answer("❌ Произошла ошибка. Попробуй ещё раз.")
         await state.set_state(SceneStates.waiting_for_scene)
 
 
-@dp.callback_query(SceneStates.awaiting_action, F.data == "download_clip")
-async def handle_download_clip(callback_query: CallbackQuery, state: FSMContext):
-    await callback_query.answer("Начинаю скачивание клипа...")
+async def vertical_flow(raw_path: str, scene_data: Dict[str, Any], job_id: str, message: Message, state: FSMContext):
+    """Handles the processing flow for vertical video: cut, crop, subtitle, send, caption, cleanup."""
+    try:
+        await message.answer("✂️ Вырезаю клип...")
+        clipped_path = await cut_clip(raw_path, scene_data["start_time"], scene_data["end_time"], job_id)
+
+        await message.answer("📱 Обрезаю видео для TikTok...")
+        vertical_path = await crop_vertical(clipped_path, job_id)
+
+        await message.answer("📝 Добавляю субтитры...")
+        subtitled_path = await add_subtitles_groq(vertical_path, job_id)
+
+        file_size = get_file_size_mb(subtitled_path)
+        if file_size > 50:
+            await message.answer(
+                "❌ Файл слишком большой для Telegram (>50mb). "
+                "Попробуй запросить более короткий отрывок."
+            )
+            return
+
+        video = FSInputFile(subtitled_path)
+        film = scene_data.get("film", "Неизвестный фильм")
+        year = scene_data.get("year", "")
+        scene_desc = scene_data.get("scene_description", "Описание недоступно")
+        film_info = f"{film} ({year})" if year else film
+        caption_video = f"{film_info}\n{scene_desc}"
+
+        try:
+            await bot.send_video(
+                chat_id=message.chat.id,
+                video=video,
+                caption=caption_video,
+                supports_streaming=True
+            )
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.timeout)
+            await bot.send_video(
+                chat_id=message.chat.id,
+                video=video,
+                caption=caption_video,
+                supports_streaming=True
+            )
+
+        tiktok_caption = await generate_tiktok_caption(scene_data)
+        if tiktok_caption:
+            await message.answer(
+                f"📱 Текст для TikTok:\n<pre>{tiktok_caption}</pre>",
+                parse_mode="HTML"
+            )
+
+    except RuntimeError as e:
+        error_msg = "❌ Ошибка при обработке видео." if "Video not found" not in str(e) else "❌ Не нашёл видео на YouTube. Попробуй другой запрос."
+        await message.answer(error_msg)
+    except Exception as e:
+        logger.error(f"Unexpected error during vertical_flow: {e}")
+        await message.answer("❌ Произошла ошибка при создании вертикального клипа. Попробуй ещё раз.")
+    finally:
+        cleanup(job_id)
+        await state.set_state(SceneStates.waiting_for_scene)
+        await message.answer("✅ Готово! Можешь описать ещё одну сцену.")
+
+
+@dp.callback_query(SceneStates.awaiting_action, F.data == "download_horizontal")
+async def handle_download_horizontal(callback_query: CallbackQuery, state: FSMContext):
+    await callback_query.answer("Начинаю скачивание горизонтального клипа...")
     await callback_query.message.edit_reply_markup(reply_markup=None)  # Remove buttons
 
     data = await state.get_data()
@@ -185,6 +247,13 @@ async def handle_download_clip(callback_query: CallbackQuery, state: FSMContext)
                 supports_streaming=True
             )
 
+        tiktok_caption = await generate_tiktok_caption(scene_data)
+        if tiktok_caption:
+            await callback_query.message.answer(
+                f"📱 Текст для TikTok:\n<pre>{tiktok_caption}</pre>",
+                parse_mode="HTML"
+            )
+
         cleanup(job_id)
         await state.set_state(SceneStates.waiting_for_scene)
         await callback_query.message.answer("✅ Готово! Можешь описать ещё одну сцену.")
@@ -195,8 +264,40 @@ async def handle_download_clip(callback_query: CallbackQuery, state: FSMContext)
         cleanup(job_id)
         await state.set_state(SceneStates.waiting_for_scene)
     except Exception as e:
-        logger.error(f"Unexpected error during download_clip: {e}")
+        logger.error(f"Unexpected error during download_horizontal: {e}")
         await callback_query.message.answer("❌ Произошла ошибка при скачивании клипа. Попробуй ещё раз.")
+        cleanup(job_id)
+        await state.set_state(SceneStates.waiting_for_scene)
+
+
+@dp.callback_query(SceneStates.awaiting_action, F.data == "download_vertical")
+async def handle_download_vertical(callback_query: CallbackQuery, state: FSMContext):
+    await callback_query.answer("Начинаю обработку вертикального клипа...")
+    await callback_query.message.edit_reply_markup(reply_markup=None)  # Remove buttons
+
+    data = await state.get_data()
+    scene_data = data.get("scene_data")
+
+    if not scene_data:
+        await callback_query.message.answer("❌ Произошла ошибка: данные сцены не найдены.")
+        await state.set_state(SceneStates.waiting_for_scene)
+        return
+
+    job_id = uuid4().hex[:8]
+
+    try:
+        await callback_query.message.answer("📥 Ищу и скачиваю видео...")
+        result = await search_and_download(scene_data, job_id)
+
+        if isinstance(result, dict) and result.get("type") == "links":
+            await _send_links_message(callback_query.message, result, job_id, state)
+            return
+
+        await vertical_flow(result, scene_data, job_id, callback_query.message, state)
+
+    except Exception as e:
+        logger.error(f"Unexpected error in handle_download_vertical: {e}")
+        await callback_query.message.answer("❌ Произошла ошибка при обработке вертикального клипа. Попробуй ещё раз.")
         cleanup(job_id)
         await state.set_state(SceneStates.waiting_for_scene)
 

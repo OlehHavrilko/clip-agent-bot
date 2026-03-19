@@ -137,3 +137,83 @@ def adjust_timestamps_for_confidence(scene_data: dict) -> Tuple[str, str]:
             pass  # Use original timestamps if parsing fails
     
     return start, end
+
+
+async def crop_vertical(input_path: str, job_id: str) -> str:
+    """
+    Crops a video to a 9:16 vertical aspect ratio, keeping the center of the frame.
+    If the video is already vertical (height > width), it skips cropping and returns the original path.
+    Returns the path to the vertically cropped video or raises RuntimeError on failure.
+    """
+    output_path = os.path.join(DOWNLOADS_DIR, f"{job_id}_vertical.mp4")
+
+    # Detect video dimensions
+    ffprobe_cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "json",
+        "-i", input_path
+    ]
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *ffprobe_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode() if stderr else "Unknown ffprobe error"
+            raise RuntimeError(f"FFprobe failed: {error_msg}")
+
+        import json
+        video_info = json.loads(stdout)
+        width = video_info["streams"][0]["width"]
+        height = video_info["streams"][0]["height"]
+
+        if height > width:  # Already vertical
+            print(f"Video {input_path} is already vertical. Skipping crop.")
+            return input_path
+
+        # Calculate crop dimensions for 9:16
+        # crop=ih*9/16:ih:(iw-ih*9/16)/2:0
+        # crop_width = height * 9 / 16
+        # crop_height = height
+        # x_offset = (width - crop_width) / 2
+        # y_offset = 0
+
+        vf_filter = f"crop=ih*9/16:ih:(iw-ih*9/16)/2:0"
+
+        cmd = [
+            "ffmpeg",
+            "-i", input_path,
+            "-vf", vf_filter,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "28",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-y", output_path
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode() if stderr else "Unknown ffmpeg error"
+            raise RuntimeError(f"FFmpeg failed during vertical crop: {error_msg}")
+
+        if not os.path.exists(output_path):
+            raise RuntimeError("Vertical crop output file was not created")
+
+        return output_path
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to crop video vertically: {str(e)}")
